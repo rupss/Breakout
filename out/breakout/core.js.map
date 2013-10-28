@@ -1,0 +1,11 @@
+{"version":3,
+ "file":
+ "/Users/Rupa/Documents/hackerschool/clojurescript/breakout/out/breakout/core.js",
+ "sources":
+ ["/Users/Rupa/Documents/hackerschool/clojurescript/breakout/src/breakout/core.cljs"],
+ "lineCount":10,
+ "mappings":
+ ";;AAECA;AAEAC;AASAC,sDAEQC,SAAOC,sCACPC,UAAQF,+BACbE,yBAAAL,0BAAAC;;AAEHK;AACAJ",
+ "names":
+ ["block-width", "block-height", "draw-block", "canvas", "document",
+  "context", "console"]}
