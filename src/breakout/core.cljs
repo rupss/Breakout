@@ -1,6 +1,3 @@
-; getting the application loop set up
-; setinterval
-
 (ns breakout.core
   (:require [clojure.set :as set]))
 
@@ -15,6 +12,8 @@
 (def brick-height 10)
 
 (def ball-radius 15)
+
+(def block-movement 20)
 
 (defn log
   [item]
@@ -68,14 +67,14 @@
 
 (defn move-block-left
   [[block-x block-y] [canvas context c-width c-height]]
-  (let [new-block-x (- block-x 4)]
+  (let [new-block-x (- block-x block-movement)]
     (if (>= new-block-x 0)
       [new-block-x block-y]
       [0 block-y])))
 
 (defn move-block-right
   [[block-x block-y] [canvas context c-width c-height]]
-  (let [new-block-x (+ block-x 4)
+  (let [new-block-x (+ block-x block-movement)
         bound (- c-width block-width)]
     (if (<= new-block-x bound)
       [new-block-x block-y]
@@ -136,7 +135,7 @@
   (let [ball-four-points (get-four-points ball)]
     (some true? (map #(boundary-within-rect? % rect rect-width rect-height) ball-four-points))))
 
-(defn check-ball-block-collision
+(defn check-ball-block-vertical-collision
   [state]
   (let [ball (@state :ball)
         block (@state :block)
@@ -144,6 +143,24 @@
         old-dy (@state :dy)]
     (when (ball-rectangle-collision block block-width block-height ball)
       (swap! state assoc :dy (* -1 old-dy)))))
+
+(defn block-horizontal-collision?
+  [[x y] [block-x block-y]]
+  (and (== x block-x) (in-bound? (- y block-y) block-height)))
+
+(defn check-ball-block-horizontal-collision
+  [state]
+  (let [ball (@state :ball)
+        block (@state :block)
+        ball-four-points (get-four-points ball)]
+    (when (some true? (map #(block-horizontal-collision? % block) ball-four-points))
+      (swap! state assoc :dy (* (@state :dy) -1))
+      (swap! state assoc :dx (* (@state :dx) -1)))))
+
+(defn check-ball-block-collision
+  [state]
+    ; (check-ball-block-horizontal-collision state)
+    (check-ball-block-vertical-collision state))
 
 (defn get-collided-bricks
   [ball bricks]
@@ -154,18 +171,32 @@
   (let [ball (@state :ball)
         all-bricks (@state :bricks)
         collided-bricks (get-collided-bricks ball all-bricks)]
-    (swap! state assoc :bricks (set/difference all-bricks (set collided-bricks)))))
+    (when (not (empty? collided-bricks))
+      (swap! state assoc :bricks (set/difference all-bricks (set collided-bricks)))
+      (swap! state assoc :dy (* -1 (@state :dy))))))
+
+(defn hit-side-wall? 
+  [[x y] c-width]
+  (or (<= x 0) (>= x c-width)))
+
+(defn check-side-wall-collision
+  [state c-width]
+  (let [ball (@state :ball)
+        ball-four-points (get-four-points ball)]
+    (when (some true? (map #(hit-side-wall? % c-width) ball-four-points))
+      (swap! state assoc :dx (* (@state :dx) -1)))))
 
 (defn check-collisions
-  [state]
+  [state [canvas context c-width c-height :as c]]
   (check-ball-block-collision state)
-  (check-ball-brick-collision state))
+  (check-ball-brick-collision state)
+  (check-side-wall-collision state c-width))
 
 (defn game-loop
   [state [canvas context c-width c-height :as c]]
   (js/setTimeout (fn[] (game-loop state c)) 10)
   (move-ball state)
-  (check-collisions state)
+  (check-collisions state c)
   (.clearRect context 0 0 c-width c-height)
   (draw-everything c @state))
 
