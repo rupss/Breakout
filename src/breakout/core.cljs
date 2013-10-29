@@ -13,6 +13,8 @@
 
 (def brick-height 10)
 
+(def ball-radius 15)
+
 (defn log
   [item]
   (. js/console (log item)))
@@ -35,11 +37,13 @@
 (defn draw-everything
   [[canvas context c-width c-height :as c] state]
   (let [[curr-block-x curr-block-y] (state :curr-block)
-        [old-block-x old-block-y] (state :old-block)
+        [ball-x ball-y] (state :ball)
         bricks (state :bricks)]
-    (when (and (not (nil? old-block-x)) (not (nil? old-block-y)))
-      (.clearRect context old-block-x old-block-y block-width block-height))
     (.fillRect context curr-block-x curr-block-y block-width block-height)
+    (.beginPath context)
+    (.arc context ball-x ball-y ball-radius 0 (* 2 Math/PI) true)
+    (.fill context)
+    (.closePath context)
    (dorun
     (for [[brick-x brick-y] bricks]
       (.fillRect context brick-x brick-y brick-width brick-height)))))
@@ -86,20 +90,35 @@
 (defn move-block
   [state c e]
   (let [[new-block-x new-block-y :as new-block-coords] 
-        (get-new-block-coords (@state :curr-block) c e)
-        old-block-coords (@state :curr-block)]
-    (swap! state assoc :curr-block new-block-coords)
-    (swap! state assoc :old-block old-block-coords)))
-  
+        (get-new-block-coords (@state :curr-block) c e)]
+    (swap! state assoc :curr-block new-block-coords)))
+
+(defn init-ball
+  [[canvas context c-width c-height]]
+  (let [center-x (/ c-width 2)
+        center-y (/ c-height 2)]
+    (vector center-x center-y)))
+
+(defn move-ball
+  [state]
+  (let [dx (@state :dx)
+        dy (@state :dy)
+        [ball-x ball-y] (@state :ball)]
+    (swap! state assoc :ball (vector (+ dx ball-x) (+ dy ball-y)))))
+
 (defn init-round
   [state c]
   {:curr-block (init-block c)
-   :old-block (vector nil nil)
-   :bricks (init-bricks c)})
+   :bricks (init-bricks c)
+   :ball (init-ball c)
+   :dx 0.5
+   :dy 1})
 
 (defn game-loop
-  [state c]
+  [state [canvas context c-width c-height :as c]]
   (js/setTimeout (fn[] (game-loop state c)) 10)
+  (move-ball state)
+  (.clearRect context 0 0 c-width c-height)
   (draw-everything c @state))
 
 (defn ^:export init

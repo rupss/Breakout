@@ -1,0 +1,6 @@
+(. System exit 0)
+(def n [nil nil])
+n
+(nil? n)
+(nil? (first n))
+(. System exit 0)
