@@ -1,11 +1,7 @@
 ; getting the application loop set up
+; setinterval
 
-(ns breakout.core
-    (:require 
-        [goog.dom :as dom]
-        [goog.Timer :as timer]
-        [goog.events :as events]
-        [goog.events.EventType :as event-type]))
+(ns breakout.core)
 
 (def block-width 150)
 
@@ -38,9 +34,12 @@
 
 (defn draw-everything
   [[canvas context c-width c-height :as c] state]
-  (let [[block-x block-y] (state :block)
+  (let [[curr-block-x curr-block-y] (state :curr-block)
+        [old-block-x old-block-y] (state :old-block)
         bricks (state :bricks)]
-    (.fillRect context block-x block-y block-width block-height)
+    (when (and (not (nil? old-block-x)) (not (nil? old-block-y)))
+      (.clearRect context old-block-x old-block-y block-width block-height))
+    (.fillRect context curr-block-x curr-block-y block-width block-height)
    (dorun
     (for [[brick-x brick-y] bricks]
       (.fillRect context brick-x brick-y brick-width brick-height)))))
@@ -86,27 +85,31 @@
 
 (defn move-block
   [state c e]
-  (swap! state assoc :block (get-new-block-coords (@state :block) c e)))
+  (let [[new-block-x new-block-y :as new-block-coords] 
+        (get-new-block-coords (@state :curr-block) c e)
+        old-block-coords (@state :curr-block)]
+    (swap! state assoc :curr-block new-block-coords)
+    (swap! state assoc :old-block old-block-coords)))
   
 (defn init-round
   [state c]
-  {:block (init-block c)
+  {:curr-block (init-block c)
+   :old-block (vector nil nil)
    :bricks (init-bricks c)})
 
-(defn play-game
-  [timer state c]
-  (log "playing game")
+(defn game-loop
+  [state c]
+  (js/setTimeout (fn[] (game-loop state c)) 10)
   (draw-everything c @state))
 
-(log "Hello World")
- (let [[canvas context c-width c-height :as c] (get-context)
-      block (init-block c)
-      bricks (init-bricks c)
-      state (atom {})
-      timer (goog.Timer. (/ 1000 60))]
+(defn ^:export init
+  []
+  (let [[canvas context c-width c-height :as c] (get-context)
+      state (atom {})]
    (swap! state init-round c)
- ; (draw-everything c @state)
-  (.addEventListener js/window "keydown" #(move-block state c %) false)
-  (events/listen timer goog.Timer/TICK #(play-game timer state c)))
+   (.addEventListener js/window "keydown" #(move-block state c %) false)
+   (game-loop state c))) 
+
+(init)
  
  
