@@ -1,7 +1,8 @@
 ; getting the application loop set up
 ; setinterval
 
-(ns breakout.core)
+(ns breakout.core
+  (:require [clojure.set :as set]))
 
 (def block-width 150)
 
@@ -23,11 +24,10 @@
   []
   (let [canvas (.getElementById js/document "canvas")
         context (.getContext canvas "2d")]
-    (vector
-      canvas
+    [canvas
       context
      (. canvas -width)
-     (. canvas -height))))
+     (. canvas -height)]))
 
 (defn get-context-only
   []
@@ -36,10 +36,10 @@
 
 (defn draw-everything
   [[canvas context c-width c-height :as c] state]
-  (let [[curr-block-x curr-block-y] (state :curr-block)
+  (let [[block-x block-y] (state :block)
         [ball-x ball-y] (state :ball)
         bricks (state :bricks)]
-    (.fillRect context curr-block-x curr-block-y block-width block-height)
+    (.fillRect context block-x block-y block-width block-height)
     (.beginPath context)
     (.arc context ball-x ball-y ball-radius 0 (* 2 Math/PI) true)
     (.fill context)
@@ -52,11 +52,11 @@
   [[canvas context c-width c-height]]
   (for [corner-x (range 0 c-width (+ brick-width brick-space))
         corner-y (range 0 (/ c-height 3) (+ brick-height brick-space))] 
-    (vector corner-x corner-y)))
+    [corner-x corner-y]))
 
 (defn init-block
   [[canvas context c-width c-height]]
-  (vector (- (/ c-width 2) (/ block-width 2)) (- c-height block-height)))
+  [(- (/ c-width 2) (/ block-width 2)) (- c-height block-height)])
 
 (defn log-list
   [items]
@@ -70,16 +70,16 @@
   [[block-x block-y] [canvas context c-width c-height]]
   (let [new-block-x (- block-x 4)]
     (if (>= new-block-x 0)
-      (vector new-block-x block-y)
-      (vector 0 block-y))))
+      [new-block-x block-y]
+      [0 block-y])))
 
 (defn move-block-right
   [[block-x block-y] [canvas context c-width c-height]]
   (let [new-block-x (+ block-x 4)
         bound (- c-width block-width)]
     (if (<= new-block-x bound)
-      (vector new-block-x block-y)
-      (vector bound block-y))))
+      [new-block-x block-y]
+      [bound block-y])))
 
 (defn get-new-block-coords
   [block c e]
@@ -90,34 +90,82 @@
 (defn move-block
   [state c e]
   (let [[new-block-x new-block-y :as new-block-coords] 
-        (get-new-block-coords (@state :curr-block) c e)]
-    (swap! state assoc :curr-block new-block-coords)))
+        (get-new-block-coords (@state :block) c e)]
+    (swap! state assoc :block new-block-coords)))
 
 (defn init-ball
   [[canvas context c-width c-height]]
   (let [center-x (/ c-width 2)
         center-y (/ c-height 2)]
-    (vector center-x center-y)))
+    [center-x center-y]))
 
 (defn move-ball
   [state]
   (let [dx (@state :dx)
         dy (@state :dy)
         [ball-x ball-y] (@state :ball)]
-    (swap! state assoc :ball (vector (+ dx ball-x) (+ dy ball-y)))))
+    (swap! state assoc :ball [(+ dx ball-x) (+ dy ball-y)])))
 
 (defn init-round
   [state c]
-  {:curr-block (init-block c)
-   :bricks (init-bricks c)
+  {:block (init-block c)
+   :bricks (set (init-bricks c))
    :ball (init-ball c)
-   :dx 0.5
-   :dy 1})
+   :dx 0.5 ; TODO initialize randomly
+   :dy 1}) ; TODO initialize randomly
+
+(defn get-four-points
+  [[ball-x ball-y]]
+  [[(+ ball-x ball-radius) ball-y]
+   [(- ball-x ball-radius) ball-y]
+   [ball-x (+ ball-y ball-radius)]
+   [ball-x (- ball-y ball-radius)]])
+
+(defn in-bound? 
+  [diff bound]
+  (and (<= diff bound) (>= diff 0)))
+
+(defn boundary-within-rect?
+  [[x y] [rect-x rect-y] rect-width rect-height]
+  (let [x-diff (- x rect-x)
+        y-diff (- y rect-y)]
+    (and (in-bound? x-diff rect-width) (in-bound? y-diff rect-height))))
+
+(defn ball-rectangle-collision
+  [rect rect-width rect-height ball]
+  (let [ball-four-points (get-four-points ball)]
+    (some true? (map #(boundary-within-rect? % rect rect-width rect-height) ball-four-points))))
+
+(defn check-ball-block-collision
+  [state]
+  (let [ball (@state :ball)
+        block (@state :block)
+        old-dx (@state :dx)
+        old-dy (@state :dy)]
+    (when (ball-rectangle-collision block block-width block-height ball)
+      (swap! state assoc :dy (* -1 old-dy)))))
+
+(defn get-collided-bricks
+  [ball bricks]
+  (filter #(ball-rectangle-collision % brick-width brick-height ball) bricks))
+
+(defn check-ball-brick-collision
+  [state]
+  (let [ball (@state :ball)
+        all-bricks (@state :bricks)
+        collided-bricks (get-collided-bricks ball all-bricks)]
+    (swap! state assoc :bricks (set/difference all-bricks (set collided-bricks)))))
+
+(defn check-collisions
+  [state]
+  (check-ball-block-collision state)
+  (check-ball-brick-collision state))
 
 (defn game-loop
   [state [canvas context c-width c-height :as c]]
   (js/setTimeout (fn[] (game-loop state c)) 10)
   (move-ball state)
+  (check-collisions state)
   (.clearRect context 0 0 c-width c-height)
   (draw-everything c @state))
 
