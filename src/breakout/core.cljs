@@ -6,7 +6,7 @@
             [goog.dom :as dom])
   (:require-macros [cljs.core.async.macros :refer [go alt!]]))
 
-(def block-width 150)
+(def block-width 500)
 
 (def block-height 20)
 
@@ -19,6 +19,8 @@
 (def ball-radius 15)
 
 (def block-movement 20)
+
+(def channel (chan))
 
 (defn log
   [item]
@@ -38,19 +40,33 @@
     (let [canvas (.getElementById js/document "canvas")]
       (.getContext canvas "2d")))
 
-(defn draw-everything
-  [[canvas context c-width c-height :as c] state]
-  (let [[block-x block-y] (state :block)
-        [ball-x ball-y] (state :ball)
-        bricks (state :bricks)]
-    (.fillRect context block-x block-y block-width block-height)
+(defn log-list
+  [items]
+  (dorun
+    (for [[x y dx dy] items]
+      (do
+        (log x)
+        (log y)))))
+
+(defn draw-ball
+  [[ball-x ball-y dx dy] [canvas context c-width c-height :as c]]
     (.beginPath context)
     (.arc context ball-x ball-y ball-radius 0 (* 2 Math/PI) true)
     (.fill context)
-    (.closePath context)
+    (.closePath context))
+
+(defn draw-everything
+  [[canvas context c-width c-height :as c] state]
+  (let [[block-x block-y] (state :block)
+        balls (state :balls)
+        bricks (state :bricks)]
+    (.fillRect context block-x block-y block-width block-height)
    (dorun
     (for [[brick-x brick-y] bricks]
-      (.fillRect context brick-x brick-y brick-width brick-height)))))
+      (.fillRect context brick-x brick-y brick-width brick-height)))
+   (dorun
+    (for [ball balls]
+      (draw-ball ball c)))))
 
 (defn init-bricks
   [[canvas context c-width c-height]]
@@ -60,67 +76,29 @@
 
 (defn init-block
   [[canvas context c-width c-height]]
-  [(- (/ c-width 2) (/ block-width 2)) (- c-height block-height)])
+  [0 (- c-height block-height)])
 
-(defn log-list
-  [items]
-  (dorun
-    (for [[x y] items]
-      (do
-        (log x)
-        (log y)))))
-
-(defn move-block-left
-  [[block-x block-y] [canvas context c-width c-height]]
-  (let [new-block-x (- block-x block-movement)]
-    (if (>= new-block-x 0)
-      [new-block-x block-y]
-      [0 block-y])))
-
-(defn move-block-right
-  [[block-x block-y] [canvas context c-width c-height]]
-  (let [new-block-x (+ block-x block-movement)
-        bound (- c-width block-width)]
-    (if (<= new-block-x bound)
-      [new-block-x block-y]
-      [bound block-y])))
-
-(defn get-new-block-coords
-  [block c e]
-   (cond
-     (== 39 (. e -keyCode)) (move-block-right block c)
-     (== 37 (. e -keyCode)) (move-block-left block c)
-     :else block))
-
-(defn move-block
-  [state c e]
-  (let [[new-block-x new-block-y :as new-block-coords] 
-        (get-new-block-coords (@state :block) c e)]
-    (swap! state assoc :block new-block-coords)))
-
-(defn init-ball
+(defn init-balls
   [[canvas context c-width c-height]]
   (let [center-x (/ c-width 2)
         center-y (/ c-height 2)]
-    [center-x center-y]))
-
-(defn move-ball
-  [state]
-  (let [dx (@state :dx)
-        dy (@state :dy)
-        [ball-x ball-y] (@state :ball)]
-    (swap! state assoc :ball [(+ dx ball-x) (+ dy ball-y)])))
+    [[center-x center-y 0.5 1] [150 center-y -2 2] [350 center-y -1.2 1.3]]))
 
 (defn init-round
   [state c]
   {:block (init-block c)
    :bricks (set (init-bricks c))
-   :ball (init-ball c)
-   :dx 0.5 ; TODO initialize randomly
-   :dy 1}) ; TODO initialize randomly
+   :balls (init-balls c)})
+
+(defn move-ball
+  [state i]
+  (let [old-balls (@state :balls)
+        [ball-x ball-y dx dy :as ball] (nth old-balls i)
+        new-balls (assoc old-balls i [(+ dx ball-x) (+ dy ball-y) dx dy])]
+    (swap! state assoc :balls new-balls)))
 
 (defn get-four-points
-  [[ball-x ball-y]]
+  [[ball-x ball-y dx dy]]
   [[(+ ball-x ball-radius) ball-y]
    [(- ball-x ball-radius) ball-y]
    [ball-x (+ ball-y ball-radius)]
@@ -141,14 +119,20 @@
   (let [ball-four-points (get-four-points ball)]
     (some true? (map #(boundary-within-rect? % rect rect-width rect-height) ball-four-points))))
 
+(defn reverse-ball-direction
+  "direction-to-reverse is either :dx or :dy"
+  [old-balls [ball-x ball-y dx dy :as ball] i direction-to-reverse]
+  (cond 
+    (= direction-to-reverse :dy) (assoc old-balls i [ball-x ball-y dx (* -1 dy)])
+    (= direction-to-reverse :dx) (assoc old-balls i [ball-x ball-y (* -1 dx) dy])))
+
 (defn check-ball-block-vertical-collision
-  [state]
-  (let [ball (@state :ball)
-        block (@state :block)
-        old-dx (@state :dx)
-        old-dy (@state :dy)]
+  [state i]
+  (let [block (@state :block)
+        old-balls (@state :balls)
+        [ball-x ball-y old-dx old-dy :as ball] (nth old-balls i)]
     (when (ball-rectangle-collision block block-width block-height ball)
-      (swap! state assoc :dy (* -1 old-dy)))))
+      (swap! state assoc :balls (reverse-ball-direction old-balls ball i :dy)))))
 
 (defn block-horizontal-collision?
   [[x y] [block-x block-y]]
@@ -164,44 +148,50 @@
       (swap! state assoc :dx (* (@state :dx) -1)))))
 
 (defn check-ball-block-collision
-  [state]
+  [state i]
     ; (check-ball-block-horizontal-collision state)
-    (check-ball-block-vertical-collision state))
+    (check-ball-block-vertical-collision state i))
 
 (defn get-collided-bricks
   [ball bricks]
   (filter #(ball-rectangle-collision % brick-width brick-height ball) bricks))
 
 (defn check-ball-brick-collision
-  [state]
-  (let [ball (@state :ball)
+  [state i]
+  (let [old-balls (@state :balls)
+        ball (nth old-balls i)
         all-bricks (@state :bricks)
         collided-bricks (get-collided-bricks ball all-bricks)]
     (when (not (empty? collided-bricks))
       (swap! state assoc :bricks (set/difference all-bricks (set collided-bricks)))
-      (swap! state assoc :dy (* -1 (@state :dy))))))
+      (swap! state assoc :balls (reverse-ball-direction old-balls ball i :dy)))))
 
 (defn hit-side-wall? 
   [[x y] c-width]
   (or (<= x 0) (>= x c-width)))
 
 (defn check-side-wall-collision
-  [state c-width]
-  (let [ball (@state :ball)
+  [state i c-width]
+  (let [old-balls (@state :balls)
+        ball (nth old-balls i)
         ball-four-points (get-four-points ball)]
     (when (some true? (map #(hit-side-wall? % c-width) ball-four-points))
-      (swap! state assoc :dx (* (@state :dx) -1)))))
+      (swap! state assoc :balls (reverse-ball-direction old-balls ball i :dx)))))
 
 (defn check-collisions
-  [state [canvas context c-width c-height :as c]]
-  (check-ball-block-collision state)
-  (check-ball-brick-collision state)
-  (check-side-wall-collision state c-width))
+  [state i [canvas context c-width c-height :as c]]
+  (check-ball-block-collision state i)
+  (check-ball-brick-collision state i)
+  (check-side-wall-collision state i c-width))
 
+(defn tick-one-ball
+  [state c i]
+  (move-ball state i)
+  (check-collisions state i c))
+  
 (defn game-loop
   [state [canvas context c-width c-height :as c]]
-  (move-ball state)
-  (check-collisions state c)
+  (tick-one-ball state c 0)
   (.clearRect context 0 0 c-width c-height)
   (draw-everything c @state))
 
@@ -210,12 +200,10 @@
   (let [[canvas context c-width c-height :as c] (get-context)
       state (atom {})]
    (swap! state init-round c)
-   (.addEventListener js/window "keydown" #(move-block state c %) false)
    (go 
      (while true 
        (<! (timeout 4)) 
        (game-loop state c))))) 
 
 (init)
- 
  
