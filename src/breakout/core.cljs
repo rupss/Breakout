@@ -1,7 +1,10 @@
 ; Next step - reimplementing with core.async
 
 (ns breakout.core
-  (:require [clojure.set :as set]))
+  (:require [clojure.set :as set]
+            [cljs.core.async :refer [>! <! chan put! take! timeout close!]]
+            [goog.dom :as dom])
+  (:require-macros [cljs.core.async.macros :refer [go alt!]]))
 
 (def block-width 150)
 
@@ -197,7 +200,6 @@
 
 (defn game-loop
   [state [canvas context c-width c-height :as c]]
-  (js/setTimeout (fn[] (game-loop state c)) 10)
   (move-ball state)
   (check-collisions state c)
   (.clearRect context 0 0 c-width c-height)
@@ -209,7 +211,10 @@
       state (atom {})]
    (swap! state init-round c)
    (.addEventListener js/window "keydown" #(move-block state c %) false)
-   (game-loop state c))) 
+   (go 
+     (while true 
+       (<! (timeout 4)) 
+       (game-loop state c))))) 
 
 (init)
  
