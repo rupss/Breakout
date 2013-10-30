@@ -48,12 +48,19 @@
         (log x)
         (log y)))))
 
-(defn draw-ball
-  [[ball-x ball-y dx dy] [canvas context c-width c-height :as c]]
+(defn draw-sized-circle
+  [[ball-x ball-y dx dy] [canvas context c-width c-height :as c] color radius]
     (.beginPath context)
-    (.arc context ball-x ball-y ball-radius 0 (* 2 Math/PI) true)
+    (.arc context ball-x ball-y radius 0 (* 2 Math/PI) true)
+    (set! (.-fillStyle context) color)
     (.fill context)
     (.closePath context))
+
+(defn draw-ball
+  [ball c color]
+    (cond
+      (= color "white") (draw-sized-circle ball c color (+ ball-radius 0.8))
+      (= color "black") (draw-sized-circle ball c color ball-radius)))
 
 (defn draw-everything
   [[canvas context c-width c-height :as c] state]
@@ -66,7 +73,7 @@
       (.fillRect context brick-x brick-y brick-width brick-height)))
    (dorun
     (for [ball balls]
-      (draw-ball ball c)))))
+      (draw-ball ball c "black")))))
 
 (defn init-bricks
   [[canvas context c-width c-height]]
@@ -93,9 +100,17 @@
 (defn move-ball
   [state i]
   (let [old-balls (@state :balls)
-        [ball-x ball-y dx dy :as ball] (nth old-balls i)
-        new-balls (assoc old-balls i [(+ dx ball-x) (+ dy ball-y) dx dy])]
-    (swap! state assoc :balls new-balls)))
+        [old-ball-x old-ball-y old-dx old-dy :as old-ball] (nth old-balls i)
+        new-ball [(+ old-dx old-ball-x) (+ old-dy old-ball-y) old-dx old-dy]
+        new-balls (assoc old-balls i new-ball)]
+    (swap! state assoc :balls new-balls)
+    [old-ball new-ball]))
+
+(defn move-draw-ball
+  [state c i]
+  (let [[old-ball new-ball] (move-ball state i)]
+    (draw-ball old-ball c "white")
+    (draw-ball new-ball c "black"))) 
 
 (defn get-four-points
   [[ball-x ball-y dx dy]]
@@ -191,7 +206,10 @@
   
 (defn game-loop
   [state [canvas context c-width c-height :as c]]
-  (tick-one-ball state c 0)
+  (dorun 
+    (for [i (range (count (@state :balls)))]
+      (tick-one-ball state c i)))
+  ;(tick-one-ball state c 2)
   (.clearRect context 0 0 c-width c-height)
   (draw-everything c @state))
 
@@ -199,11 +217,24 @@
   []
   (let [[canvas context c-width c-height :as c] (get-context)
       state (atom {})]
-   (swap! state init-round c)
-   (go 
+    (swap! state init-round c)
+    (go 
      (while true 
        (<! (timeout 4)) 
-       (game-loop state c))))) 
+       (game-loop state c)))))
 
-(init)
+(defn init-async
+  []
+  (let [[canvas context c-width c-height :as c] (get-context)
+        state (atom {})]
+    (swap! state init-round c)
+    (draw-everything c @state)
+   ; ))
+    (go 
+      (while true
+        (<! (timeout 5))
+        (move-draw-ball state c 0)))))
+  
+
+(init-async)
  
