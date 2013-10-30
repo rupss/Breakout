@@ -1,3 +1,5 @@
+; Next step - reimplementing with core.async
+
 (ns breakout.core
   (:require [clojure.set :as set]))
 
@@ -84,7 +86,8 @@
   [block c e]
    (cond
      (== 39 (. e -keyCode)) (move-block-right block c)
-     (== 37 (. e -keyCode)) (move-block-left block c)))
+     (== 37 (. e -keyCode)) (move-block-left block c)
+     :else block))
 
 (defn move-block
   [state c e]
