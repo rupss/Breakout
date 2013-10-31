@@ -98,7 +98,7 @@
   [[canvas context c-width c-height]]
   (let [center-x (/ c-width 2)
         center-y (/ c-height 2)]
-    [[center-x center-y 0.8 1] [150 center-y -2 2] [350 center-y -1.2 1.3]]))
+    [[center-x center-y 1.2 1.5] [150 center-y -3 3] [350 center-y -2 -2.2]]))
 
 (defn init-round
   [state c]
@@ -106,20 +106,37 @@
    :bricks (set (init-bricks c))
    :balls (init-balls c)})
 
+(defn get-curr-time
+  []
+  (.now js/Date))
+
 (defn move-ball
-  [state i]
+  [state i prev-tick-time]
   (let [old-balls (@state :balls)
         [old-ball-x old-ball-y old-dx old-dy :as old-ball] (nth old-balls i)
-        new-ball [(+ old-dx old-ball-x) (+ old-dy old-ball-y) old-dx old-dy]
+        curr-time (get-curr-time)
+        elapsed-time (/ (- curr-time prev-tick-time) 1000000000000)
+        new-ball [(+ old-dx old-ball-x (* old-dx elapsed-time))
+                  (+ old-dy old-ball-y (* old-dy elapsed-time))
+                  old-dx
+                  old-dy]
         new-balls (assoc old-balls i new-ball)]
     (swap! state assoc :balls new-balls)
-    [old-ball new-ball]))
+    (log "elapsed time")
+    (log (- curr-time prev-tick-time))
+    (log "old ball")
+    (log old-ball-x)
+    (log old-ball-y)
+    (log "new ball")
+    (log (first new-ball))
+    (log (nth new-ball 1))
+         ))
 
-(defn move-draw-ball
-  [state c i]
-  (let [[old-ball new-ball] (move-ball state i)]
-    (draw-ball old-ball c "white")
-    (draw-ball new-ball c "black"))) 
+;(defn move-draw-ball
+;  [state c i]
+ ; (let [[old-ball new-ball] (move-ball state i)]
+  ;  (draw-ball old-ball c "white")
+  ;  (draw-ball new-ball c "black"))) 
 
 (defn get-four-points
   [[ball-x ball-y dx dy]]
@@ -206,10 +223,11 @@
     (when (some true? (map #(hit-side-wall? % c-width) ball-four-points))
       (swap! state assoc :balls (reverse-ball-direction old-balls ball i :dx)))))
 
-(defn check-ball-ball-collision
+(comment (defn check-ball-ball-collision
   [state i]
   (let [other-balls (@state :balls)]
-  (when (some true? (map #())))))
+  (when (some true? (map #() other-balls)))))
+  )
 
 (defn check-collisions
   [state i [canvas context c-width c-height :as c]]
@@ -219,19 +237,19 @@
  ; (check-ball-ball-collision state i))
 
 (defn tick-one-ball
-  [state c i]
-  (move-ball state i)
+  [state c i prev-tick-time]
+  (move-ball state i prev-tick-time)
   (check-collisions state i c))
   
 (defn game-loop
-  [state [canvas context c-width c-height :as c]]
+  [state [canvas context c-width c-height :as c] prev-tick-time]
   (dorun 
     (for [i (range (count (@state :balls)))]
-      (tick-one-ball state c i)))
+      (tick-one-ball state c i prev-tick-time)))
   (.clearRect context 0 0 c-width c-height)
   (draw-everything c @state))
 
-(defn ^:export init
+(comment (defn ^:export init
   []
   (let [[canvas context c-width c-height :as c] (get-context)
       state (atom {})]
@@ -240,8 +258,9 @@
      (while true 
        (<! (timeout 4)) 
        (game-loop state c)))))
+)
 
-(defn init-async
+(comment (defn init-async
   []
   (let [[canvas context c-width c-height :as c] (get-context)
         state (atom {})]
@@ -255,6 +274,19 @@
             (move-draw-ball state c i)
             (check-collisions state i c)
             ))))))
+  )
 
-(init)
+(defn init-deltas
+  []
+  (let [[canvas context c-width c-height :as c] (get-context)
+    state (atom {})]
+    (swap! state init-round c)
+    (go 
+     (loop [t nil] 
+       (<! (timeout 4))
+       (let [prev-tick-time (get-curr-time)] 
+        (game-loop state c t)
+        (recur prev-tick-time))))))
+
+(init-deltas)
  
