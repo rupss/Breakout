@@ -59,8 +59,17 @@
 (defn draw-ball
   [ball c color]
     (cond
-      (= color "white") (draw-sized-circle ball c color (+ ball-radius 0.8))
+      (= color "white") (draw-sized-circle ball c color ball-radius);(+ ball-radius 0.8))
       (= color "black") (draw-sized-circle ball c color ball-radius)))
+
+(defn draw-brick
+  [[brick-x brick-y] [canvas context c-width c-height :as c] color]
+  (set! (.-fillStyle context) color)
+  (.fillRect context brick-x brick-y brick-width brick-height))
+
+(defn erase-brick
+  [[brick-x brick-y] [canvas context c-width c-height :as c] color]
+  (.clearRect context brick-x brick-y brick-width brick-height))
 
 (defn draw-everything
   [[canvas context c-width c-height :as c] state]
@@ -69,8 +78,8 @@
         bricks (state :bricks)]
     (.fillRect context block-x block-y block-width block-height)
    (dorun
-    (for [[brick-x brick-y] bricks]
-      (.fillRect context brick-x brick-y brick-width brick-height)))
+    (for [[brick-x brick-y :as brick] bricks]
+      (draw-brick brick c "black")))
    (dorun
     (for [ball balls]
       (draw-ball ball c "black")))))
@@ -89,7 +98,7 @@
   [[canvas context c-width c-height]]
   (let [center-x (/ c-width 2)
         center-y (/ c-height 2)]
-    [[center-x center-y 0.5 1] [150 center-y -2 2] [350 center-y -1.2 1.3]]))
+    [[center-x center-y 0.8 1] [150 center-y -2 2] [350 center-y -1.2 1.3]]))
 
 (defn init-round
   [state c]
@@ -172,12 +181,16 @@
   (filter #(ball-rectangle-collision % brick-width brick-height ball) bricks))
 
 (defn check-ball-brick-collision
-  [state i]
+  [state c i]
   (let [old-balls (@state :balls)
         ball (nth old-balls i)
         all-bricks (@state :bricks)
         collided-bricks (get-collided-bricks ball all-bricks)]
     (when (not (empty? collided-bricks))
+      (log "HIT")
+      (dorun 
+        (for [brick collided-bricks]
+        (erase-brick brick c i)))
       (swap! state assoc :bricks (set/difference all-bricks (set collided-bricks)))
       (swap! state assoc :balls (reverse-ball-direction old-balls ball i :dy)))))
 
@@ -193,11 +206,17 @@
     (when (some true? (map #(hit-side-wall? % c-width) ball-four-points))
       (swap! state assoc :balls (reverse-ball-direction old-balls ball i :dx)))))
 
+(defn check-ball-ball-collision
+  [state i]
+  (let [other-balls (@state :balls)]
+  (when (some true? (map #())))))
+
 (defn check-collisions
   [state i [canvas context c-width c-height :as c]]
   (check-ball-block-collision state i)
-  (check-ball-brick-collision state i)
+  (check-ball-brick-collision state c i)
   (check-side-wall-collision state i c-width))
+ ; (check-ball-ball-collision state i))
 
 (defn tick-one-ball
   [state c i]
@@ -209,7 +228,6 @@
   (dorun 
     (for [i (range (count (@state :balls)))]
       (tick-one-ball state c i)))
-  ;(tick-one-ball state c 2)
   (.clearRect context 0 0 c-width c-height)
   (draw-everything c @state))
 
@@ -229,12 +247,14 @@
         state (atom {})]
     (swap! state init-round c)
     (draw-everything c @state)
-   ; ))
-    (go 
-      (while true
-        (<! (timeout 5))
-        (move-draw-ball state c 0)))))
-  
+    (dorun 
+      (for [i (range (count (@state :balls)))]
+        (go
+          (while true
+            (<! (timeout 5))
+            (move-draw-ball state c i)
+            (check-collisions state i c)
+            ))))))
 
-(init-async)
+(init)
  
