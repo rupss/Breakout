@@ -72,8 +72,9 @@
   (.clearRect context brick-x brick-y brick-width brick-height))
 
 (defn draw-everything
-  [[canvas context c-width c-height :as c] state]
-  (let [[block-x block-y] (state :block)
+  [state]
+  (let [[canvas context c-width c-height :as c] (get-context)
+        [block-x block-y] (state :block)
         balls (state :balls)
         bricks (state :bricks)]
     (.fillRect context block-x block-y block-width block-height)
@@ -229,11 +230,24 @@
   (when (some true? (map #() other-balls)))))
   )
 
+(defn hit-top-wall?
+  [[x y]]
+  (<= y 0))
+
+(defn check-top-wall-collision
+  [state i]
+  (let [old-balls (@state :balls)
+        ball (nth old-balls i)
+        ball-four-points (get-four-points ball)]
+    (when (some true? (map #(hit-top-wall? %) ball-four-points))
+      (swap! state assoc :balls (reverse-ball-direction old-balls ball i :dy)))))
+
 (defn check-collisions
   [state i [canvas context c-width c-height :as c]]
   (check-ball-block-collision state i)
   (check-ball-brick-collision state c i)
-  (check-side-wall-collision state i c-width))
+  (check-side-wall-collision state i c-width)
+  (check-top-wall-collision state i))
  ; (check-ball-ball-collision state i))
 
 (defn tick-one-ball
@@ -247,7 +261,7 @@
     (for [i (range (count (@state :balls)))]
       (tick-one-ball state c i prev-tick-time)))
   (.clearRect context 0 0 c-width c-height)
-  (draw-everything c @state))
+  (draw-everything @state))
 
 (comment (defn ^:export init
   []
