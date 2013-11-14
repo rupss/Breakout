@@ -20,12 +20,9 @@
 
 (def block-movement 20)
 
-(def tick-channel (chan)) ;; just for the purpose of knowing when an update has 
-;; happened - content doesn't matter
+(def channel (chan 1000)) ;; takes state atom
 
-(def draw-channel (chan 1000)) ;; takes state atom
-
-(def draw-mult (mult draw-channel))
+(def draw-mult (mult channel))
 (def draw-tap (tap draw-mult (chan 1000)))
 (def game-tap (tap draw-mult (chan 1000)))
 
@@ -113,9 +110,7 @@
   [[canvas context c-width c-height]]
   (let [center-x (/ c-width 2)
         center-y (/ c-height 2)]
-    ;[[center-x center-y 1.2 1.5] [150 center-y -3 3] [350 center-y -2 -2.2]]
-    [[center-x center-y 1.2 1.5]]
-    ))
+    [[center-x center-y 3 4.5] [150 center-y -5 5] [350 center-y -4 -3.1]]))
 
 (defn init-round
   [c]
@@ -128,31 +123,20 @@
   (.now js/Date))
 
 (defn move-ball
-  [state i]
-  (let [old-balls (state :balls)
-        [old-ball-x old-ball-y old-dx old-dy :as old-ball] (nth old-balls i)
-        curr-time (get-curr-time)
-        new-ball [(+ old-dx old-ball-x)
-                  (+ old-dy old-ball-y)
-                  old-dx
-                  old-dy]
-        new-balls (assoc old-balls i new-ball)]
-    (let [new-state (assoc state :balls new-balls)]
-    
-    ;; (if (== i 0) (do
-    ;; ;  (log "OLD")
-    ;;  ; (log old-ball-x)
-    ;;   ;(log old-ball-y)
-    ;;   (log "NEW")
-    ;;   (log (first new-ball))
-    ;;   (log (nth new-ball 1)))
-    ;;   (log "new-state"))
-    ;;  ; (log (first (first (new-state :balls))))
-    ;;   ;(log (nth (first (new-state :balls)) 1)))
-    ;;   (print-first-ball-coords new-state)
-      (go
-        (>! draw-channel new-state)
-        (log "move ball - put state on channel")))))
+  [i]
+  (go
+   (let [state (<! channel)
+         old-balls (state :balls)
+         [old-ball-x old-ball-y old-dx old-dy :as old-ball] (nth old-balls i)
+         curr-time (get-curr-time)
+         new-ball [(+ old-dx old-ball-x)
+                   (+ old-dy old-ball-y)
+                   old-dx
+                   old-dy]
+         new-balls (assoc old-balls i new-ball)]
+     (let [new-state (assoc state :balls new-balls)]
+        (go
+        (>! channel new-state))))))
 
 (defn get-four-points
   [[ball-x ball-y dx dy]]
@@ -188,8 +172,10 @@
   (let [block (state :block)
         old-balls (state :balls)
         [ball-x ball-y old-dx old-dy :as ball] (nth old-balls i)]
-    when (ball-rectangle-collision block block-width block-height ball)
-    (go (>! draw-channel (assoc state :balls (reverse-ball-direction old-balls ball i :dy))))))
+    (if (ball-rectangle-collision block block-width block-height ball)
+      (do
+        (go (>! channel (assoc state :balls (reverse-ball-direction old-balls ball i :dy)))))
+      (go (>! channel state)))))
 
 (defn check-ball-block-collision
   [state i]
@@ -205,14 +191,16 @@
         ball (nth old-balls i)
         all-bricks (state :bricks)
         collided-bricks (get-collided-bricks ball all-bricks)]
-    (when (not (empty? collided-bricks))
-      (log "HIT")
-      (dorun 
-        (for [brick collided-bricks]
-        (erase-brick brick c i)))
-      (go
-        (>! draw-channel (assoc state :bricks (set/difference all-bricks (set collided-bricks))
-                                    :balls (reverse-ball-direction old-balls ball i :dy)))))))
+    (if (not (empty? collided-bricks))
+      (do
+        (dorun 
+         (for [brick collided-bricks]
+           (erase-brick brick c i)))
+        (go
+         (>! channel (assoc state :bricks (set/difference all-bricks (set collided-bricks))
+                                 :balls (reverse-ball-direction old-balls ball i :dy)))))
+      (do
+        (go (>! channel state))))))
 
 (defn hit-side-wall? 
   [[x y] c-width]
@@ -223,9 +211,10 @@
   (let [old-balls (state :balls)
         ball (nth old-balls i)
         ball-four-points (get-four-points ball)]
-    (when (some true? (map #(hit-side-wall? % c-width) ball-four-points))
+    (if (some true? (map #(hit-side-wall? % c-width) ball-four-points))
       (go
-        (>! draw-channel (assoc state :balls (reverse-ball-direction old-balls ball i :dx)))))))
+       (>! channel (assoc state :balls (reverse-ball-direction old-balls ball i :dx))))
+      (go (>! channel state)))))
 
 (defn hit-top-wall?
   [[x y]]
@@ -236,24 +225,22 @@
   (let [old-balls (state :balls)
         ball (nth old-balls i)
         ball-four-points (get-four-points ball)]
-    (when (some true? (map #(hit-top-wall? %) ball-four-points))
-      (go (>! draw-channel (assoc state :balls (reverse-ball-direction old-balls ball i :dy)))))))
+    (if (some true? (map #(hit-top-wall? %) ball-four-points))
+      (go (>! channel (assoc state :balls (reverse-ball-direction old-balls ball i :dy))))
+      (go (>! channel state)))))
 
 (defn check-collisions
-  [state i [canvas context c-width c-height :as c]]
-  (check-ball-block-collision state i)
-  ;(check-ball-brick-collision state c i)
-  ;(check-side-wall-collision state i c-width)
-  ;(check-top-wall-collision state i)
-  )
+  [i [canvas context c-width c-height :as c]]
+  (go
+   (check-ball-block-collision (<! game-tap) i)
+   (check-ball-brick-collision (<! game-tap) c i)
+   (check-side-wall-collision (<! game-tap) i c-width)
+   (check-top-wall-collision (<! game-tap) i)))
 
 (defn tick-one-ball
   [c i]
-  (go
-   (let [state (<! game-tap)]
-     (move-ball state i)
-     (let [state (<! game-tap)]
-       (check-collisions state i c)))))
+  (move-ball i)
+  (check-collisions i c))
   
 (defn game
   [[canvas context c-width c-height :as c] num-balls]
@@ -265,120 +252,13 @@
   []
    (go
      (while true
-       (draw-everything (<! draw-tap))
-       (log "drew everything - fn"))))
+       (draw-everything (<! draw-tap)))))
 
 (draw-looper)
 (let [[canvas context c-width c-height :as c] (get-context)
       init-state (init-round c)]
   (go
-   (>! draw-channel init-state)
-   (loop [n 0]
-     (if (< n 100)
-       (do
-         (game c (count (:balls init-state)))
-         (<! (timeout 10))
-         (recur (inc n)))))))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-(comment
-  (go 
-   (log "testing error handling")
-   (try 
-     (<? jkdlfjaslfjafajf)
-     (catch js/Error e
-       (log (error e)))))
-  )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-(comment
-  (go
-   (log "about to push")
-   (>! draw-channel 2)
-   (>! draw-channel 3)
-   (log "pushed"))
-  (go
-   (<! (timeout 100))
-                                        ;(log (<! draw-channel))
-   (log (<! draw-channel))))
-
-(comment
-(go
-  (<! (timeout 100))
-  (let [draw-mult (mult draw-channel)
-        draw1 (tap draw-mult (chan))
-        draw2 (tap draw-mult (chan))]
-     (log (<! draw1))
-     (log (<! draw-channel))
-     (log (<! draw2))
-     (log "done")))
-)
-
-(comment (go
-          (>! tick-channel "X")
-          (>! tick-channel "Y")
-          (>! tick-channel "Z")))
-
-(comment  (go 
-           (<! (timeout 100))
-           (let [tick-mult (mult tick-channel)
-                 tap1 (tap tick-mult (chan))
-                 tap2 (tap tick-mult (chan))]
-             (log (<! tap1))
-                                        ; (log (<! tap2))
-             (log (<! tap2))
-             (log (<! tick-channel)))))
-
-(comment
-(log "before")
-(go
-  (log "inside go block")
-  (>! draw-channel 1)
-  (log "pushed the first")
-  (>! draw-channel 2)
-  (log "pushed the second"))
-)
-    ;(log (<! draw-channel))))
-; (log (<! draw-copy))
-
-
- 
+   (>! channel init-state)
+   (while true
+     (game c (count (:balls init-state)))
+     (<! (timeout 4)))))
